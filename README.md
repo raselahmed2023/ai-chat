@@ -10,7 +10,7 @@ Coming soon after deployment.
 
 ## GitHub Repository
 
-`https://github.com/raselahmed2023/streaming-ai-chat`
+`https://github.com/raselahmed2023/ai-chat`
 
 ## Features
 
