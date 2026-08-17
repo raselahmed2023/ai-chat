@@ -8,6 +8,8 @@ import {
 } from "ai";
 
 import FrontendAnalysisCard from "@/components/FrontendAnalysisCard";
+import ChatSkeleton from "@/components/ChatSkeleton";
+import ChatErrorState from "@/components/ChatErrorState";
 
 import type {
   FrontendAnalysisInput,
@@ -23,6 +25,8 @@ export default function ChatInterface() {
     stop,
     status,
     error,
+    regenerate,
+    clearError,
   } = useChat({
     transport: new DefaultChatTransport({
       api: "/api/chat",
@@ -40,11 +44,22 @@ export default function ChatInterface() {
       return;
     }
 
+    clearError();
     setInput("");
 
     await sendMessage({
       text,
     });
+  };
+
+  const retryLastMessage = async () => {
+    if (isGenerating) {
+      return;
+    }
+
+    clearError();
+
+    await regenerate();
   };
 
   return (
@@ -53,14 +68,14 @@ export default function ChatInterface() {
         <header className="chat-header">
           <div>
             <p className="chat-eyebrow">
-              FE-07 · Generative UI
+              FE-08 · Production States
             </p>
 
             <h1>Frontend AI Assistant</h1>
 
             <p className="chat-subtitle">
-              Chat normally or ask the AI to analyze a
-              frontend skill.
+              Streaming chat with structured tools, retry,
+              loading and designed failure states.
             </p>
           </div>
 
@@ -75,11 +90,11 @@ export default function ChatInterface() {
             <div className="empty-state">
               <div className="empty-icon">✦</div>
 
-              <h2>Try a tool call</h2>
+              <h2>No conversation yet</h2>
 
               <p>
-                Ask for a frontend skill assessment to see
-                structured AI tool output.
+                Start with a suggested prompt or ask the AI
+                anything.
               </p>
 
               <div className="example-prompts">
@@ -115,6 +130,33 @@ export default function ChatInterface() {
                 >
                   Test tool error
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setInput("test slow response")
+                  }
+                >
+                  Test slow response
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setInput("test rate limit")
+                  }
+                >
+                  Test rate limit
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setInput("test stream failure")
+                  }
+                >
+                  Test stream failure
+                </button>
               </div>
             </div>
           ) : (
@@ -129,18 +171,22 @@ export default function ChatInterface() {
           )}
 
           {status === "submitted" && (
-            <div className="thinking-row">
-              <span className="tool-spinner" />
-              AI is thinking…
-            </div>
+            <ChatSkeleton />
           )}
         </div>
 
         <div className="composer-section">
           {error && (
-            <div className="chat-error" role="alert">
-              Something went wrong. Please try again.
-            </div>
+            <ChatErrorState
+              message={
+                error.message ||
+                "The AI response was interrupted. Please retry the failed message."
+              }
+              onRetry={() => {
+                void retryLastMessage();
+              }}
+              disabled={isGenerating}
+            />
           )}
 
           <form
@@ -171,7 +217,7 @@ export default function ChatInterface() {
 
             <div className="composer-footer">
               <span className="composer-hint">
-                Try: “Analyze my React skill as intermediate”
+                Enter to send · Shift + Enter for new line
               </span>
 
               {isGenerating ? (

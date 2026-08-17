@@ -942,3 +942,138 @@ button {
     transition: none;
   }
 }
+
+
+/* FE-08 */
+
+.route-error-page {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #f8fafc;
+}
+
+.route-error-card {
+  width: min(100%, 520px);
+  padding: 28px;
+  border: 1px solid #fecaca;
+  border-radius: 20px;
+  background: white;
+  text-align: center;
+}
+
+.route-error-icon,
+.chat-failure-icon {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: #fee2e2;
+  color: #b91c1c;
+  font-weight: 900;
+}
+
+.route-error-icon {
+  margin: 0 auto 14px;
+}
+
+.route-error-label,
+.chat-failure-label {
+  margin: 0 0 6px;
+  color: #b91c1c;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.route-error-card button,
+.chat-failure-content button {
+  border: 0;
+  border-radius: 10px;
+  padding: 10px 14px;
+  background: #111827;
+  color: white;
+  font-weight: 700;
+}
+
+.chat-failure-card {
+  width: min(100%, 760px);
+  margin: 0 auto 12px;
+  padding: 16px;
+  display: flex;
+  gap: 12px;
+  border: 1px solid #fecaca;
+  border-radius: 16px;
+  background: #fff7f7;
+}
+
+.chat-failure-content h3 {
+  margin: 0 0 6px;
+}
+
+.chat-failure-content p {
+  margin: 0 0 10px;
+  color: #991b1b;
+}
+
+.chat-skeleton {
+  width: min(100%, 760px);
+  margin: 0 auto 16px;
+  display: flex;
+  gap: 12px;
+}
+
+.skeleton-avatar {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  border-radius: 10px;
+  background: #e5e7eb;
+}
+
+.skeleton-content {
+  flex: 1;
+  padding: 14px;
+  border-radius: 15px;
+  background: #f3f4f6;
+}
+
+.skeleton-line {
+  height: 10px;
+  margin-bottom: 9px;
+  border-radius: 999px;
+  background: #e5e7eb;
+}
+
+.skeleton-line-long {
+  width: 90%;
+}
+
+.skeleton-line-medium {
+  width: 68%;
+}
+
+.skeleton-line-short {
+  width: 42%;
+  margin-bottom: 0;
+}
+
+@media (max-width: 480px) {
+  .chat-failure-card {
+    padding: 13px;
+  }
+
+  .composer textarea {
+    font-size: 16px;
+  }
+
+  .composer-section {
+    padding-bottom: max(
+      12px,
+      env(safe-area-inset-bottom)
+    );
+  }
+}
