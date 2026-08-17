@@ -326,8 +326,4 @@ Analyzes a frontend development topic or skill and returns a structured assessme
   level: "beginner" | "intermediate" | "advanced";
 }
 
-## Author
 
-**Rasel Ahmed**
-
-Frontend AI Engineering Intern
