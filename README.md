@@ -6,7 +6,7 @@ The application provides real-time AI responses, multi-turn conversation support
 
 ## Live Demo
 
-Coming soon after deployment.
+`(https://ai-chat-lake-sigma.vercel.app/)`
 
 ## GitHub Repository
 
@@ -187,7 +187,7 @@ The API keys are accessed only from server-side modules using environment variab
 Clone the repository:
 
 ```bash
-git clone https://github.com/raselahmed2023/streaming-ai-chat.git
+git clone https://github.com/raselahmed2023/ai-chat.git
 ```
 
 Move into the project:
