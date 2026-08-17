@@ -28,34 +28,14 @@ function getGeminiClient(): GoogleGenAI {
 /**
  * Convert a message array into Gemini's format.
  * Gemini expects messages with role "user" or "model" (not "assistant").
- * The system prompt is prepended as the first user message.
  */
 function convertMessagesToGeminiFormat(
   messages: Message[]
 ): Array<{ role: "user" | "model"; parts: Array<{ text: string }> }> {
-  const geminiMessages: Array<{ role: "user" | "model"; parts: Array<{ text: string }> }> = [];
-
-  // Add system prompt as the first user message
-  geminiMessages.push({
-    role: "user",
-    parts: [{ text: SYSTEM_PROMPT }],
-  });
-
-  // Add a model acknowledgment to establish the conversation pattern
-  geminiMessages.push({
-    role: "model",
-    parts: [{ text: "I understand. I will follow these instructions." }],
-  });
-
-  // Add all conversation messages
-  for (const msg of messages) {
-    geminiMessages.push({
-      role: msg.role === "assistant" ? "model" : "user",
-      parts: [{ text: msg.content }],
-    });
-  }
-
-  return geminiMessages;
+  return messages.map((msg) => ({
+    role: msg.role === "assistant" ? "model" : "user",
+    parts: [{ text: msg.content }],
+  }));
 }
 
 /**
@@ -70,7 +50,7 @@ export async function* streamGeminiResponse(
 ): AsyncGenerator<string, void, unknown> {
   const client = getGeminiClient();
 
-  // Convert messages to Gemini format (includes system prompt)
+  // Convert messages to Gemini format
   const geminiMessages = convertMessagesToGeminiFormat(messages);
 
   if (geminiMessages.length === 0) {
@@ -78,11 +58,21 @@ export async function* streamGeminiResponse(
   }
 
   try {
-    // Start streaming the response
-    const response = await client.models.generateContentStream({
+    // Construct request parameters with native systemInstruction
+    const requestParams = {
       model: GEMINI_CONFIG.model,
       contents: geminiMessages,
-    });
+      systemInstruction: SYSTEM_PROMPT,
+    };
+
+    // Call generateContentStream with systemInstruction
+    // Cast through unknown to handle SDK's expanding feature set
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const response = await (client.models.generateContentStream as (
+      params: unknown
+    ) => Promise<AsyncIterable<{ candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> }>>)(
+      requestParams as unknown
+    );
 
     // Yield each chunk of text as it arrives
     for await (const chunk of response) {

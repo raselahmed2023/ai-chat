@@ -1,36 +1,314 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Streaming AI Chat
 
-## Getting Started
+A modern full-stack AI chat application built with **Next.js, React, TypeScript, and streaming AI APIs**.
 
-First, run the development server:
+The application provides real-time AI responses, multi-turn conversation support, stop-generation controls, smart auto-scroll behavior, and a responsive chat interface designed for both desktop and mobile devices.
+
+## Live Demo
+
+Coming soon after deployment.
+
+## GitHub Repository
+
+`https://github.com/raselahmed2023/streaming-ai-chat`
+
+## Features
+
+* Real-time streamed AI responses
+* Gemini as the primary AI provider
+* Fallback AI provider architecture
+* Multi-turn conversation context
+* Thinking indicator before the first streamed token
+* Stop generation during an active response
+* Partial AI response remains visible after stopping
+* Send another message immediately after stopping
+* Smart auto-scroll behavior
+* “Jump to latest” control when the user scrolls away from the bottom
+* Responsive chat interface
+* Mobile-friendly composer
+* Enter to send
+* Shift + Enter for a new line
+* Accessible buttons, labels, and focus states
+* Server-side API key protection
+* Friendly error handling
+
+## Tech Stack
+
+### Frontend
+
+* Next.js
+* React
+* TypeScript
+* CSS
+* App Router
+
+### Backend
+
+* Next.js Route Handler
+* Google Gemini API
+* Streaming Web APIs
+* `ReadableStream`
+* `AbortController`
+
+### AI Provider
+
+Primary provider:
+
+```text
+Google Gemini
+```
+
+The project also includes fallback-provider architecture so another AI service can handle requests if the primary provider becomes unavailable before any response content has been streamed.
+
+## Project Structure
+
+```text
+streaming-ai-chat/
+│
+├── src/
+│   ├── app/
+│   │   ├── api/
+│   │   │   └── chat/
+│   │   │       └── route.ts
+│   │   ├── globals.css
+│   │   ├── layout.tsx
+│   │   └── page.tsx
+│   │
+│   ├── components/
+│   │   └── ChatInterface.tsx
+│   │
+│   └── lib/
+│       ├── ai-config.ts
+│       ├── gemini.ts
+│       └── openrouter.ts
+│
+├── .env.example
+├── .gitignore
+├── package.json
+├── tsconfig.json
+└── README.md
+```
+
+## How Streaming Works
+
+The client sends the complete conversation history to:
+
+```text
+POST /api/chat
+```
+
+The server calls the AI provider using a streaming API.
+
+Instead of waiting for the full AI response, the server forwards text chunks to the browser as they arrive.
+
+```text
+User Message
+     ↓
+POST /api/chat
+     ↓
+Gemini
+     ↓
+Streaming response
+     ↓
+ReadableStream
+     ↓
+Chat Interface
+```
+
+The frontend reads the response using:
+
+```text
+response.body.getReader()
+```
+
+and progressively appends each incoming text chunk to the assistant message.
+
+## Stop Generation
+
+Every AI request uses an `AbortController`.
+
+When the user presses **Stop**:
+
+* the active request is aborted
+* already-streamed content remains visible
+* the input becomes available again
+* the user can immediately start another conversation turn
+
+This prevents the conversation state from breaking after cancellation.
+
+## Smart Auto-Scroll
+
+The application automatically follows streamed content only while the user is already near the bottom of the conversation.
+
+If the user scrolls upward:
+
+* automatic scrolling stops
+* the user can continue reading older messages
+* a **Jump to latest** control becomes available
+
+This avoids forcing the user back to the newest token while they are reading previous content.
+
+## Multi-Turn Conversation
+
+The full conversation history is sent with every request.
+
+Example:
+
+```text
+User: My name is Rasel.
+
+Assistant: Nice to meet you, Rasel.
+
+User: What name did I tell you?
+
+Assistant: You told me your name is Rasel.
+```
+
+This allows the AI to retain context across multiple turns in the same chat session.
+
+## Environment Variables
+
+Create a `.env.local` file in the project root.
+
+```env
+GEMINI_API_KEY=
+OPENROUTER_API_KEY=
+
+GEMINI_MODEL=
+OPENROUTER_MODEL=
+```
+
+Do not commit real API keys to GitHub.
+
+The API keys are accessed only from server-side modules using environment variables.
+
+## Installation
+
+Clone the repository:
+
+```bash
+git clone https://github.com/raselahmed2023/streaming-ai-chat.git
+```
+
+Move into the project:
+
+```bash
+cd streaming-ai-chat
+```
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+Create:
+
+```text
+.env.local
+```
+
+Add the required environment variables.
+
+Then start the development server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```text
+http://localhost:3000
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Production Build
 
-## Learn More
+Run:
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm run build
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Then:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+npm run start
+```
 
-## Deploy on Vercel
+## Testing Checklist
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Before deployment, verify:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+* AI response visibly streams instead of appearing all at once
+* Thinking indicator appears before the first token
+* Stop button works during generation
+* Partial response remains after stopping
+* New messages can be sent after stopping
+* Multiple conversation turns preserve context
+* Scrolling upward disables forced auto-scroll
+* Jump to latest works correctly
+* Empty messages cannot be submitted
+* Enter sends the message
+* Shift + Enter adds a new line
+* Chat works at approximately 375px mobile width
+* No API key appears in client-side code
+* `npm run build` passes without TypeScript errors
+
+## Security
+
+API credentials are never exposed directly to the browser.
+
+The frontend communicates only with the internal server route:
+
+```text
+/api/chat
+```
+
+The server route then communicates with the configured AI provider using environment variables.
+
+Real `.env.local` credentials should never be committed to GitHub.
+
+## Important Source Files
+
+### Route Handler
+
+```text
+src/app/api/chat/route.ts
+```
+
+### Chat Component
+
+```text
+src/components/ChatInterface.tsx
+```
+
+### AI Configuration
+
+```text
+src/lib/ai-config.ts
+```
+
+### Gemini Provider
+
+```text
+src/lib/gemini.ts
+```
+
+## Assignment Goal
+
+This project was built as a **Streaming AI Chat Interface** exercise focused on modern frontend AI engineering patterns, including:
+
+* streamed generation
+* cancellation
+* state preservation
+* responsive interaction design
+* multi-turn AI conversation
+* server-side secret management
+* robust scrolling behavior
+
+## Author
+
+**Rasel Ahmed**
+
+Frontend AI Engineering Intern

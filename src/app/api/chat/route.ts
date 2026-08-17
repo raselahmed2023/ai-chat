@@ -1,54 +1,35 @@
-/**
- * POST /api/chat
- *
- * Streaming chat endpoint for the AI chat application.
- *
- * Request body:
- * {
- *   messages: Array<{
- *     role: "user" | "assistant";
- *     content: string;
- *   }>
- * }
- *
- * Response: Server-sent text/plain stream of assistant text chunks
- */
-
 import { NextRequest, NextResponse } from "next/server";
 import { Message } from "@/lib/ai-config";
 import { streamGeminiResponse } from "@/lib/gemini";
 import { streamOpenRouterResponse } from "@/lib/openrouter";
 
-/**
- * Validates that the request body contains a valid messages array.
- */
 function validateMessages(messages: unknown): messages is Message[] {
   if (!Array.isArray(messages)) {
     return false;
   }
 
-  return messages.every(
-    (msg) =>
-      typeof msg === "object" &&
-      msg !== null &&
-      (msg as Record<string, unknown>).role === "user" ||
-      (msg as Record<string, unknown>).role === "assistant" &&
-      typeof (msg as Record<string, unknown>).content === "string"
-  );
+  return messages.every((msg) => {
+    if (typeof msg !== "object" || msg === null) {
+      return false;
+    }
+
+    const record = msg as Record<string, unknown>;
+
+    return (
+      (record.role === "user" || record.role === "assistant") &&
+      typeof record.content === "string" &&
+      record.content.trim().length > 0
+    );
+  });
 }
 
-/**
- * Handles POST requests to the chat endpoint.
- * Streams AI responses in real-time using fallback provider logic.
- */
 export async function POST(request: NextRequest): Promise<Response> {
   try {
-    // Parse and validate the request body
-    const body = await request.json() as unknown;
+    const body: unknown = await request.json();
 
     if (
-      !body ||
       typeof body !== "object" ||
+      body === null ||
       !("messages" in body)
     ) {
       return NextResponse.json(
@@ -63,7 +44,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       return NextResponse.json(
         {
           error:
-            "Invalid messages format. Expected array of {role: 'user'|'assistant', content: string}",
+            "Invalid messages format. Expected { role: 'user' | 'assistant', content: string }",
         },
         { status: 400 }
       );
@@ -76,99 +57,106 @@ export async function POST(request: NextRequest): Promise<Response> {
       );
     }
 
-    // Create a ReadableStream that handles the fallback logic
-    const stream = new ReadableStream<string>({
+    const encoder = new TextEncoder();
+
+    const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
         let hasEmittedOutput = false;
 
         try {
-          // Try Gemini first
           try {
+            // Primary provider: Gemini
             for await (const chunk of streamGeminiResponse(messages)) {
-              // Check if request was cancelled
               if (request.signal.aborted) {
                 controller.close();
                 return;
               }
 
+              if (!chunk) {
+                continue;
+              }
+
               hasEmittedOutput = true;
-              controller.enqueue(chunk);
+
+              // Response streams must emit bytes, not raw strings.
+              controller.enqueue(encoder.encode(chunk));
             }
 
-            // Gemini succeeded, we're done
             controller.close();
             return;
           } catch (geminiError) {
-            // If Gemini failed before emitting output, try OpenRouter
+            console.error("Gemini provider failed:", geminiError);
+
+            // Only fallback when Gemini has not already streamed content.
             if (!hasEmittedOutput) {
               try {
                 for await (const chunk of streamOpenRouterResponse(messages)) {
-                  // Check if request was cancelled
                   if (request.signal.aborted) {
                     controller.close();
                     return;
                   }
 
-                  controller.enqueue(chunk);
+                  if (!chunk) {
+                    continue;
+                  }
+
+                  controller.enqueue(encoder.encode(chunk));
                 }
 
-                // OpenRouter succeeded, we're done
                 controller.close();
                 return;
               } catch (openrouterError) {
-                // Both providers failed
-                const errorMsg =
-                  openrouterError instanceof Error
-                    ? openrouterError.message
-                    : "Unknown error";
-                controller.error(new Error(`All providers failed: ${errorMsg}`));
+                console.error(
+                  "OpenRouter fallback failed:",
+                  openrouterError
+                );
+
+                controller.enqueue(
+                  encoder.encode(
+                    "\nSorry, the AI service is temporarily unavailable."
+                  )
+                );
+                controller.close();
                 return;
               }
-            } else {
-              // Gemini failed after emitting output, don't start OpenRouter
-              // to avoid duplicating the partial response
-              const errorMsg =
-                geminiError instanceof Error
-                  ? geminiError.message
-                  : "Unknown error";
-              controller.error(
-                new Error(
-                  `Gemini stream interrupted: ${errorMsg}. Response was partially streamed.`
-                )
-              );
-              return;
             }
+
+            // Gemini failed after partial content was already streamed.
+            controller.close();
+            return;
           }
         } catch (error) {
-          const errorMsg =
-            error instanceof Error ? error.message : "Unknown error";
-          controller.error(new Error(`Stream error: ${errorMsg}`));
+          console.error("Unexpected streaming error:", error);
+
+          controller.enqueue(
+            encoder.encode(
+              "\nSorry, an unexpected streaming error occurred."
+            )
+          );
+
+          controller.close();
         }
+      },
+
+      cancel() {
+        // The request signal is checked while streaming.
       },
     });
 
-    // Return the stream as text/plain with appropriate headers
     return new Response(stream, {
+      status: 200,
       headers: {
         "Content-Type": "text/plain; charset=utf-8",
         "Cache-Control": "no-cache, no-store, must-revalidate",
-        Pragma: "no-cache",
-        Expires: "0",
+        "X-Content-Type-Options": "nosniff",
       },
     });
   } catch (error) {
-    // Handle JSON parsing errors and other unexpected issues
-    const errorMsg =
-      error instanceof Error ? error.message : "Unknown error occurred";
+    console.error("Failed to process chat request:", error);
 
     return NextResponse.json(
       { error: "Failed to process request" },
-      {
-        status: 500,
-        headers: {
-          "Cache-Control": "no-cache, no-store, must-revalidate",
-        },
-      }
+      { status: 500 }
     );
   }
 }
