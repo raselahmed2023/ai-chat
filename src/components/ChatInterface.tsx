@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { useChat } from "@ai-sdk/react";
 import {
   DefaultChatTransport,
   type UIMessage,
 } from "ai";
 
-import FrontendAnalysisCard from "@/components/FrontendAnalysisCard";
 import ChatSkeleton from "@/components/ChatSkeleton";
 import ChatErrorState from "@/components/ChatErrorState";
 
@@ -16,8 +16,36 @@ import type {
   FrontendAnalysisOutput,
 } from "@/lib/tools/frontend-analysis";
 
+// Lazy-load the structured tool UI.
+// This component is not needed during the initial page render,
+// so keeping it out of the initial bundle helps performance.
+const FrontendAnalysisCard = dynamic(
+  () => import("@/components/FrontendAnalysisCard"),
+  {
+    loading: () => (
+      <div
+        className="tool-card"
+        role="status"
+        aria-live="polite"
+      >
+        Loading analysis...
+      </div>
+    ),
+  }
+);
+
 export default function ChatInterface() {
   const [input, setInput] = useState("");
+
+  // Create the transport only once instead of recreating
+  // it on every React render.
+  const transport = useMemo(
+    () =>
+      new DefaultChatTransport({
+        api: "/api/chat",
+      }),
+    []
+  );
 
   const {
     messages,
@@ -28,9 +56,7 @@ export default function ChatInterface() {
     regenerate,
     clearError,
   } = useChat({
-    transport: new DefaultChatTransport({
-      api: "/api/chat",
-    }),
+    transport,
   });
 
   const isGenerating =
@@ -66,8 +92,11 @@ export default function ChatInterface() {
     <>
       <div
         className="messages-container"
+        role="log"
         aria-live="polite"
         aria-relevant="additions text"
+        aria-atomic="false"
+        aria-busy={isGenerating}
       >
         {messages.length === 0 ? (
           <div className="empty-state">
@@ -85,7 +114,10 @@ export default function ChatInterface() {
               anything.
             </p>
 
-            <div className="example-prompts">
+            <div
+              className="example-prompts"
+              aria-label="Suggested prompts"
+            >
               <button
                 type="button"
                 onClick={() =>
@@ -206,12 +238,15 @@ export default function ChatInterface() {
                 void submitMessage();
               }
             }}
-            aria-label="Message AI"
+            aria-describedby="composer-hint"
             rows={2}
           />
 
           <div className="composer-footer">
-            <span className="composer-hint">
+            <span
+              id="composer-hint"
+              className="composer-hint"
+            >
               Enter to send · Shift + Enter for new line
             </span>
 
@@ -224,15 +259,18 @@ export default function ChatInterface() {
                   void stop();
                 }}
               >
-                ■ Stop
+                <span aria-hidden="true">■</span>
+                {" "}Stop
               </button>
             ) : (
               <button
                 type="submit"
                 className="send-button"
                 disabled={!input.trim()}
+                aria-disabled={!input.trim()}
               >
-                Send ↑
+                Send{" "}
+                <span aria-hidden="true">↑</span>
               </button>
             )}
           </div>
@@ -247,18 +285,23 @@ function MessageRenderer({
 }: {
   message: UIMessage;
 }) {
+  const isUser = message.role === "user";
+
   return (
-    <div
+    <article
       className={
-        message.role === "user"
+        isUser
           ? "message-block user-message-block"
           : "message-block assistant-message-block"
       }
+      aria-label={
+        isUser
+          ? "Your message"
+          : "AI Assistant response"
+      }
     >
       <div className="message-author">
-        {message.role === "user"
-          ? "You"
-          : "AI Assistant"}
+        {isUser ? "You" : "AI Assistant"}
       </div>
 
       <div className="message-parts">
@@ -268,7 +311,7 @@ function MessageRenderer({
               <div
                 key={`${message.id}-text-${index}`}
                 className={
-                  message.role === "user"
+                  isUser
                     ? "message-bubble user-bubble"
                     : "message-bubble assistant-bubble"
                 }
@@ -339,6 +382,6 @@ function MessageRenderer({
           return null;
         })}
       </div>
-    </div>
+    </article>
   );
 }
