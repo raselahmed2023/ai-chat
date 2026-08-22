@@ -184,7 +184,15 @@ export default function ChatInterface() {
             void submitMessage();
           }}
         >
+          <label
+            htmlFor="chat-message"
+            className="sr-only"
+          >
+            Message AI
+          </label>
+
           <textarea
+            id="chat-message"
             value={input}
             onChange={(event) =>
               setInput(event.target.value)
@@ -198,7 +206,6 @@ export default function ChatInterface() {
                 void submitMessage();
               }
             }}
-            placeholder="Ask something or request a frontend skill analysis..."
             aria-label="Message AI"
             rows={2}
           />
