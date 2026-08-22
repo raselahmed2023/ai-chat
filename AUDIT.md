@@ -18,8 +18,7 @@ Before optimization:
 
 ### Before Screenshot
 
-![Lighthouse Before](<img width="720" height="720" alt="Screenshot 2026-08-22 071852" src="https://github.com/user-attachments/assets/771e7873-d6b3-482d-abaf-4f3c7dd26197" />)
-
+![Lighthouse Before](https://github.com/user-attachments/assets/771e7873-d6b3-482d-abaf-4f3c7dd26197)
 ---
 
 ## Issues Found
@@ -75,7 +74,7 @@ After optimization:
 
 ### After Screenshot
 
-![Lighthouse After](<img width="720" height="640" alt="Screenshot 2026-08-22 100133" src="https://github.com/user-attachments/assets/f5284851-53c9-4b3c-b133-e6bdf85c1281" />)
+![Lighthouse After](https://github.com/user-attachments/assets/f5284851-53c9-4b3c-b133-e6bdf85c1281)
 
 ---
 
@@ -103,7 +102,7 @@ Final result:
 - Alerts: 0
 - AIM Score: 10 / 10
 
-![WAVE Zero Errors](<img width="1920" height="1080" alt="Screenshot 2026-08-22 102643" src="https://github.com/user-attachments/assets/e18fc065-a771-4ff8-ba62-4641a5e11db4" />)
+![WAVE Zero Errors](https://github.com/user-attachments/assets/e18fc065-a771-4ff8-ba62-4641a5e11db4)
 
 ---
 
