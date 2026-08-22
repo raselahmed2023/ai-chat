@@ -1,4 +1,4 @@
-import ChatInterface from "@/components/ChatInterface";
+import ChatClientLoader from "@/components/ChatClientLoader";
 
 export default function Home() {
   return (
@@ -6,7 +6,6 @@ export default function Home() {
       <section className="chat-shell">
         <header className="chat-header">
           <div>
-
             <h1>Frontend AI Assistant</h1>
 
             <p className="chat-subtitle">
@@ -24,7 +23,7 @@ export default function Home() {
           </span>
         </header>
 
-        <ChatInterface />
+        <ChatClientLoader />
       </section>
     </main>
   );

@@ -1073,6 +1073,12 @@ button {
   white-space: nowrap;
   border: 0;
 }
+.chat-input-placeholder {
+  width: 100%;
+  min-height: 48px;
+  border-radius: 10px;
+  background: #f3f4f6;
+}
 
 @media (max-width: 480px) {
   .chat-failure-card {
