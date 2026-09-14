@@ -16,6 +16,113 @@ import { frontendTools } from "@/lib/tools/frontend-analysis";
 
 export const runtime = "nodejs";
 
+// FE-11: keep streaming requests from running forever.
+export const maxDuration = 30;
+
+/*
+ * =========================================
+ * FE-11 PRODUCTION SAFETY LIMITS
+ * =========================================
+ */
+
+const MAX_MESSAGE_LENGTH = 2000;
+const MAX_MESSAGES_PER_REQUEST = 30;
+const MAX_REQUEST_BYTES = 100_000;
+
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX_REQUESTS = 10;
+
+type RateLimitEntry = {
+  count: number;
+  resetAt: number;
+};
+
+const globalForRateLimit = globalThis as typeof globalThis & {
+  chatRateLimit?: Map<string, RateLimitEntry>;
+};
+
+const rateLimitStore =
+  globalForRateLimit.chatRateLimit ??
+  new Map<string, RateLimitEntry>();
+
+globalForRateLimit.chatRateLimit = rateLimitStore;
+
+function getClientIp(request: Request): string {
+  const forwardedFor =
+    request.headers.get("x-forwarded-for");
+
+  if (forwardedFor) {
+    return (
+      forwardedFor.split(",")[0]?.trim() ||
+      "unknown"
+    );
+  }
+
+  return (
+    request.headers.get("x-real-ip") ||
+    "unknown"
+  );
+}
+
+function checkRateLimit(
+  request: Request
+): {
+  allowed: boolean;
+  retryAfter: number;
+} {
+  const now = Date.now();
+  const clientIp = getClientIp(request);
+
+  const existing =
+    rateLimitStore.get(clientIp);
+
+  if (
+    !existing ||
+    now >= existing.resetAt
+  ) {
+    rateLimitStore.set(clientIp, {
+      count: 1,
+      resetAt:
+        now + RATE_LIMIT_WINDOW_MS,
+    });
+
+    return {
+      allowed: true,
+      retryAfter: 0,
+    };
+  }
+
+  if (
+    existing.count >=
+    RATE_LIMIT_MAX_REQUESTS
+  ) {
+    const retryAfter = Math.max(
+      1,
+      Math.ceil(
+        (existing.resetAt - now) /
+          1000
+      )
+    );
+
+    return {
+      allowed: false,
+      retryAfter,
+    };
+  }
+
+  existing.count += 1;
+
+  rateLimitStore.set(
+    clientIp,
+    existing
+  );
+
+  return {
+    allowed: true,
+    retryAfter: 0,
+  };
+}
+
 const SYSTEM_PROMPT = `
 You are a helpful frontend engineering assistant.
 
@@ -37,10 +144,15 @@ After a successful tool result, keep the text explanation short because
 the structured result is already rendered in the UI.
 `;
 
-function getLatestUserText(messages: UIMessage[]): string {
+function getLatestUserText(
+  messages: UIMessage[]
+): string {
   const latestUserMessage = [...messages]
     .reverse()
-    .find((message) => message.role === "user");
+    .find(
+      (message) =>
+        message.role === "user"
+    );
 
   if (!latestUserMessage) {
     return "";
@@ -65,7 +177,61 @@ export async function POST(
   request: Request
 ): Promise<Response> {
   try {
-    const body: unknown = await request.json();
+    /*
+     * =========================================
+     * FE-11 PRODUCTION SAFETY
+     * =========================================
+     */
+
+    const contentLengthHeader =
+      request.headers.get(
+        "content-length"
+      );
+
+    const contentLength =
+      contentLengthHeader
+        ? Number(contentLengthHeader)
+        : 0;
+
+    if (
+      Number.isFinite(contentLength) &&
+      contentLength >
+        MAX_REQUEST_BYTES
+    ) {
+      return Response.json(
+        {
+          error:
+            "Request body is too large.",
+        },
+        {
+          status: 413,
+        }
+      );
+    }
+
+    const rateLimit =
+      checkRateLimit(request);
+
+    if (!rateLimit.allowed) {
+      return Response.json(
+        {
+          error:
+            "Too many requests. Please wait before sending another message.",
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After":
+              String(
+                rateLimit.retryAfter
+              ),
+          },
+        }
+      );
+    }
+
+    const body: unknown =
+      await request.json();
 
     if (
       typeof body !== "object" ||
@@ -91,7 +257,8 @@ export async function POST(
     if (!Array.isArray(messages)) {
       return Response.json(
         {
-          error: "Messages must be an array.",
+          error:
+            "Messages must be an array.",
         },
         {
           status: 400,
@@ -102,7 +269,8 @@ export async function POST(
     if (messages.length === 0) {
       return Response.json(
         {
-          error: "Messages cannot be empty.",
+          error:
+            "Messages cannot be empty.",
         },
         {
           status: 400,
@@ -110,7 +278,46 @@ export async function POST(
       );
     }
 
-    const latestText = getLatestUserText(messages);
+    /*
+     * Prevent clients from sending an
+     * excessively long conversation history.
+     */
+    if (
+      messages.length >
+      MAX_MESSAGES_PER_REQUEST
+    ) {
+      return Response.json(
+        {
+          error:
+            "Conversation is too long. Please start a new chat.",
+        },
+        {
+          status: 413,
+        }
+      );
+    }
+
+    const latestText =
+      getLatestUserText(messages);
+
+    /*
+     * Prevent oversized individual prompts
+     * from consuming unnecessary AI tokens.
+     */
+    if (
+      latestText.length >
+      MAX_MESSAGE_LENGTH
+    ) {
+      return Response.json(
+        {
+          error:
+            `Message is too long. Maximum ${MAX_MESSAGE_LENGTH} characters allowed.`,
+        },
+        {
+          status: 413,
+        }
+      );
+    }
 
     /*
      * =========================================
@@ -118,7 +325,11 @@ export async function POST(
      * Simulated rate-limit error
      * =========================================
      */
-    if (latestText.includes("test rate limit")) {
+    if (
+      latestText.includes(
+        "test rate limit"
+      )
+    ) {
       return Response.json(
         {
           error:
@@ -139,47 +350,62 @@ export async function POST(
      * Simulated slow response
      * =========================================
      */
-    if (latestText.includes("test slow response")) {
-      const stream = createUIMessageStream({
-        execute: async ({ writer }) => {
-          // Keep request pending so ChatSkeleton is visible.
-          await new Promise<void>((resolve) => {
-            setTimeout(resolve, 4000);
-          });
+    if (
+      latestText.includes(
+        "test slow response"
+      )
+    ) {
+      const stream =
+        createUIMessageStream({
+          execute: async ({
+            writer,
+          }) => {
+            // Keep request pending so ChatSkeleton is visible.
+            await new Promise<void>(
+              (resolve) => {
+                setTimeout(
+                  resolve,
+                  4000
+                );
+              }
+            );
 
-          const textId = "fe08-slow-response";
+            const textId =
+              "fe08-slow-response";
 
-          writer.write({
-            type: "text-start",
-            id: textId,
-          });
+            writer.write({
+              type: "text-start",
+              id: textId,
+            });
 
-          writer.write({
-            type: "text-delta",
-            id: textId,
-            delta:
-              "The response was intentionally delayed to demonstrate the slow-response loading state.",
-          });
+            writer.write({
+              type: "text-delta",
+              id: textId,
+              delta:
+                "The response was intentionally delayed to demonstrate the slow-response loading state.",
+            });
 
-          writer.write({
-            type: "text-end",
-            id: textId,
-          });
-        },
+            writer.write({
+              type: "text-end",
+              id: textId,
+            });
+          },
 
-        onError: (error) => {
-          console.error(
-            "Slow-response test error:",
-            error
-          );
+          onError: (error) => {
+            console.error(
+              "Slow-response test error:",
+              error
+            );
 
-          return "The delayed response could not be completed.";
-        },
-      });
+            return "The delayed response could not be completed.";
+          },
+        });
 
-      return createUIMessageStreamResponse({
-        stream,
-      });
+      return (
+        createUIMessageStreamResponse({
+          stream,
+        })
+      );
     }
 
     /*
@@ -188,56 +414,76 @@ export async function POST(
      * Simulated mid-stream failure
      * =========================================
      */
-    if (latestText.includes("test stream failure")) {
-      const stream = createUIMessageStream({
-        execute: async ({ writer }) => {
-          const textId = "fe08-stream-failure";
+    if (
+      latestText.includes(
+        "test stream failure"
+      )
+    ) {
+      const stream =
+        createUIMessageStream({
+          execute: async ({
+            writer,
+          }) => {
+            const textId =
+              "fe08-stream-failure";
 
-          writer.write({
-            type: "text-start",
-            id: textId,
-          });
+            writer.write({
+              type: "text-start",
+              id: textId,
+            });
 
-          writer.write({
-            type: "text-delta",
-            id: textId,
-            delta:
-              "I started generating this response successfully. ",
-          });
+            writer.write({
+              type: "text-delta",
+              id: textId,
+              delta:
+                "I started generating this response successfully. ",
+            });
 
-          await new Promise<void>((resolve) => {
-            setTimeout(resolve, 900);
-          });
+            await new Promise<void>(
+              (resolve) => {
+                setTimeout(
+                  resolve,
+                  900
+                );
+              }
+            );
 
-          writer.write({
-            type: "text-delta",
-            id: textId,
-            delta:
-              "This partial response should remain visible after the stream fails.",
-          });
+            writer.write({
+              type: "text-delta",
+              id: textId,
+              delta:
+                "This partial response should remain visible after the stream fails.",
+            });
 
-          await new Promise<void>((resolve) => {
-            setTimeout(resolve, 900);
-          });
+            await new Promise<void>(
+              (resolve) => {
+                setTimeout(
+                  resolve,
+                  900
+                );
+              }
+            );
 
-          throw new Error(
-            "Intentional FE-08 mid-stream failure"
-          );
-        },
+            throw new Error(
+              "Intentional FE-08 mid-stream failure"
+            );
+          },
 
-        onError: (error) => {
-          console.error(
-            "Intentional stream failure:",
-            error
-          );
+          onError: (error) => {
+            console.error(
+              "Intentional stream failure:",
+              error
+            );
 
-          return "The AI response was interrupted during streaming.";
-        },
-      });
+            return "The AI response was interrupted during streaming.";
+          },
+        });
 
-      return createUIMessageStreamResponse({
-        stream,
-      });
+      return (
+        createUIMessageStreamResponse({
+          stream,
+        })
+      );
     }
 
     /*
@@ -255,7 +501,10 @@ export async function POST(
     const groqApiKey =
       process.env.GROQ_API_KEY;
 
-    if (!geminiApiKey && !groqApiKey) {
+    if (
+      !geminiApiKey &&
+      !groqApiKey
+    ) {
       return Response.json(
         {
           error:
@@ -267,10 +516,14 @@ export async function POST(
       );
     }
 
-    const modelMessages: ModelMessage[] =
-      await convertToModelMessages(messages, {
-        tools: frontendTools,
-      });
+    const modelMessages:
+      ModelMessage[] =
+      await convertToModelMessages(
+        messages,
+        {
+          tools: frontendTools,
+        }
+      );
 
     const geminiModelName =
       process.env.GEMINI_MODEL ||
@@ -278,7 +531,7 @@ export async function POST(
 
     const groqModelName =
       process.env.GROQ_MODEL ||
-     "openai/gpt-oss-20b";
+      "openai/gpt-oss-20b";
 
     const google = geminiApiKey
       ? createGoogleGenerativeAI({
@@ -305,220 +558,274 @@ export async function POST(
      * Groq is NOT started because doing so could duplicate
      * or corrupt the assistant response.
      */
-    const stream = createUIMessageStream({
-      execute: async ({ writer }) => {
-        const runProvider = async (
-          model: LanguageModel,
-          providerName: "Gemini" | "Groq"
-        ): Promise<boolean> => {
-          const result = streamText({
-            model,
+    const stream =
+      createUIMessageStream({
+        execute: async ({
+          writer,
+        }) => {
+          const runProvider =
+            async (
+              model:
+                LanguageModel,
+              providerName:
+                | "Gemini"
+                | "Groq"
+            ): Promise<boolean> => {
+              const result =
+                streamText({
+                  model,
 
-            system: SYSTEM_PROMPT,
+                  system:
+                    SYSTEM_PROMPT,
 
-            messages: modelMessages,
+                  messages:
+                    modelMessages,
 
-            tools: frontendTools,
+                  tools:
+                    frontendTools,
 
-            stopWhen: stepCountIs(5),
+                  stopWhen:
+                    stepCountIs(
+                      5
+                    ),
 
-            abortSignal: request.signal,
+                  abortSignal:
+                    request.signal,
 
-            // Avoid consuming extra quota with automatic
-            // retries before switching providers.
-            maxRetries: 0,
+                  // Avoid consuming extra quota with automatic
+                  // retries before switching providers.
+                  maxRetries: 0,
 
-            onError: (error) => {
-              console.error(
-                `${providerName} generation error:`,
-                error
-              );
-            },
-          });
+                  onError: (
+                    error
+                  ) => {
+                    console.error(
+                      `${providerName} generation error:`,
+                      error
+                    );
+                  },
+                });
 
-          const providerStream =
-            result.toUIMessageStream({
-              onError: (error) => {
+              const providerStream =
+                result.toUIMessageStream(
+                  {
+                    onError: (
+                      error
+                    ) => {
+                      console.error(
+                        `${providerName} UI stream error:`,
+                        error
+                      );
+
+                      return `${providerName} provider failed.`;
+                    },
+                  }
+                );
+
+              /*
+               * Buffer initial control chunks.
+               *
+               * This prevents a failed Gemini stream from
+               * partially opening a response before Groq
+               * takes over.
+               */
+              const bufferedChunks:
+                Parameters<
+                  typeof writer.write
+                >[0][] = [];
+
+              let hasMeaningfulOutput =
+                false;
+
+              const controlChunkTypes =
+                new Set<string>([
+                  "start",
+                  "finish",
+                  "start-step",
+                  "finish-step",
+                ]);
+
+              try {
+                for await (
+                  const chunk of
+                    providerStream
+                ) {
+                  /*
+                   * Provider failed before any useful output.
+                   * Do not forward this error to the browser;
+                   * allow the caller to try the fallback.
+                   */
+                  if (
+                    !hasMeaningfulOutput &&
+                    chunk.type ===
+                      "error"
+                  ) {
+                    console.warn(
+                      `${providerName} failed before output.`
+                    );
+
+                    return false;
+                  }
+
+                  if (
+                    !hasMeaningfulOutput
+                  ) {
+                    bufferedChunks.push(
+                      chunk
+                    );
+
+                    /*
+                     * text-start/text-delta/tool input/etc.
+                     * mean the provider has committed to
+                     * producing a real response.
+                     */
+                    if (
+                      !controlChunkTypes.has(
+                        chunk.type
+                      )
+                    ) {
+                      hasMeaningfulOutput =
+                        true;
+
+                      for (
+                        const bufferedChunk of
+                          bufferedChunks
+                      ) {
+                        writer.write(
+                          bufferedChunk
+                        );
+                      }
+
+                      bufferedChunks.length =
+                        0;
+                    }
+
+                    continue;
+                  }
+
+                  /*
+                   * Once content has started, forward every
+                   * later chunk—including tool states/errors.
+                   */
+                  writer.write(
+                    chunk
+                  );
+                }
+
+                /*
+                 * No meaningful output at all.
+                 * Treat this as a provider failure so fallback
+                 * may run.
+                 */
+                if (
+                  !hasMeaningfulOutput
+                ) {
+                  console.warn(
+                    `${providerName} completed without usable output.`
+                  );
+
+                  return false;
+                }
+
+                return true;
+              } catch (error) {
                 console.error(
-                  `${providerName} UI stream error:`,
+                  `${providerName} stream crashed:`,
                   error
                 );
 
-                return `${providerName} provider failed.`;
-              },
-            });
-
-          /*
-           * Buffer initial control chunks.
-           *
-           * This prevents a failed Gemini stream from
-           * partially opening a response before Groq
-           * takes over.
-           */
-          const bufferedChunks: Parameters<
-            typeof writer.write
-          >[0][] = [];
-
-          let hasMeaningfulOutput = false;
-
-          const controlChunkTypes = new Set<string>([
-            "start",
-            "finish",
-            "start-step",
-            "finish-step",
-          ]);
-
-          try {
-            for await (const chunk of providerStream) {
-              /*
-               * Provider failed before any useful output.
-               * Do not forward this error to the browser;
-               * allow the caller to try the fallback.
-               */
-              if (
-                !hasMeaningfulOutput &&
-                chunk.type === "error"
-              ) {
-                console.warn(
-                  `${providerName} failed before output.`
-                );
-
-                return false;
-              }
-
-              if (!hasMeaningfulOutput) {
-                bufferedChunks.push(chunk);
-
                 /*
-                 * text-start/text-delta/tool input/etc.
-                 * mean the provider has committed to
-                 * producing a real response.
+                 * Fallback is only safe before output has
+                 * reached the client.
                  */
                 if (
-                  !controlChunkTypes.has(
-                    chunk.type
-                  )
+                  !hasMeaningfulOutput
                 ) {
-                  hasMeaningfulOutput = true;
-
-                  for (const bufferedChunk of bufferedChunks) {
-                    writer.write(bufferedChunk);
-                  }
-
-                  bufferedChunks.length = 0;
+                  return false;
                 }
 
-                continue;
+                throw error;
               }
+            };
 
-              /*
-               * Once content has started, forward every
-               * later chunk—including tool states/errors.
-               */
-              writer.write(chunk);
-            }
-
-            /*
-             * No meaningful output at all.
-             * Treat this as a provider failure so fallback
-             * may run.
-             */
-            if (!hasMeaningfulOutput) {
-              console.warn(
-                `${providerName} completed without usable output.`
+          /*
+           * =========================
+           * PRIMARY: GEMINI
+           * =========================
+           */
+          if (google) {
+            const geminiSucceeded =
+              await runProvider(
+                google(
+                  geminiModelName
+                ),
+                "Gemini"
               );
 
-              return false;
+            if (
+              geminiSucceeded
+            ) {
+              return;
             }
 
-            return true;
-          } catch (error) {
-            console.error(
-              `${providerName} stream crashed:`,
-              error
+            console.warn(
+              "Gemini unavailable. Switching to Groq fallback."
             );
+          }
 
-            /*
-             * Fallback is only safe before output has
-             * reached the client.
-             */
-            if (!hasMeaningfulOutput) {
-              return false;
+          /*
+           * =========================
+           * FALLBACK: GROQ
+           * =========================
+           */
+          if (groq) {
+            const groqSucceeded =
+              await runProvider(
+                groq(
+                  groqModelName
+                ),
+                "Groq"
+              );
+
+            if (
+              groqSucceeded
+            ) {
+              return;
             }
-
-            throw error;
-          }
-        };
-
-        /*
-         * =========================
-         * PRIMARY: GEMINI
-         * =========================
-         */
-
-        if (google) {
-          const geminiSucceeded =
-            await runProvider(
-              google(geminiModelName),
-              "Gemini"
-            );
-
-          if (geminiSucceeded) {
-            return;
           }
 
-          console.warn(
-            "Gemini unavailable. Switching to Groq fallback."
+          /*
+           * Both providers failed before producing output.
+           */
+          throw new Error(
+            "All configured AI providers are currently unavailable."
           );
-        }
+        },
 
-        /*
-         * =========================
-         * FALLBACK: GROQ
-         * =========================
-         */
+        onError: (error) => {
+          console.error(
+            "Final AI provider error:",
+            error
+          );
 
-        if (groq) {
-          const groqSucceeded =
-            await runProvider(
-              groq(groqModelName),
-              "Groq"
-            );
+          return "Both AI providers are currently unavailable. Please try again shortly.";
+        },
+      });
 
-          if (groqSucceeded) {
-            return;
-          }
-        }
+    return (
+      createUIMessageStreamResponse({
+        stream,
 
-        /*
-         * Both providers failed before producing output.
-         */
-        throw new Error(
-          "All configured AI providers are currently unavailable."
-        );
-      },
+        headers: {
+          "Cache-Control":
+            "no-cache, no-store, must-revalidate",
 
-      onError: (error) => {
-        console.error(
-          "Final AI provider error:",
-          error
-        );
-
-        return "Both AI providers are currently unavailable. Please try again shortly.";
-      },
-    });
-
-    return createUIMessageStreamResponse({
-      stream,
-
-      headers: {
-        "Cache-Control":
-          "no-cache, no-store, must-revalidate",
-
-        // Helps preserve streaming through some proxies.
-        "Content-Encoding": "none",
-      },
-    });
+          // Helps preserve streaming through some proxies.
+          "Content-Encoding":
+            "none",
+        },
+      })
+    );
   } catch (error) {
     console.error(
       "Chat route error:",
