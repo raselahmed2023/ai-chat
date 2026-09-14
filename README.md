@@ -307,8 +307,23 @@ This project was built as a **Streaming AI Chat Interface** exercise focused on 
 * server-side secret management
 * robust scrolling behavior
 
-## Author
 
-**Rasel Ahmed**
+## FE-07 Tool Contract
 
-Frontend AI Engineering Intern
+### Tool Name
+
+`analyzeFrontendSkill`
+
+### Purpose
+
+Analyzes a frontend development topic or skill and returns a structured assessment that is rendered as a UI component.
+
+### Input Schema
+
+```ts
+{
+  topic: string;
+  level: "beginner" | "intermediate" | "advanced";
+}
+
+
