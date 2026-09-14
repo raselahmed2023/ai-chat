@@ -1,29 +1,34 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import "./globals.css";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+import fs from "node:fs";
+import path from "node:path";
 
 export const metadata: Metadata = {
-  title: "AI Chat",
-  description: "A simple AI chat application",
+  title: "Frontend AI Assistant",
+  description:
+    "An accessible streaming AI chat with structured frontend analysis tools.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+const globalCss = fs.readFileSync(
+  path.join(process.cwd(), "src/app/globals.css"),
+  "utf8"
+);
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
-      <body className="min-h-full flex flex-col">{children}</body>
+    <html lang="en">
+      <head>
+        <style
+          dangerouslySetInnerHTML={{
+            __html: globalCss,
+          }}
+        />
+      </head>
+
+      <body>{children}</body>
     </html>
   );
 }
